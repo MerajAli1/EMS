@@ -111,6 +111,9 @@ app.post('/api/predict', async (req, res) => {
       - "data": an array of numbers representing the predicted energy usage in kWh for each corresponding Week.
  
       Do not include any other text or markdown, just the JSON object.
+
+      NOTE:
+      The labels value should have values to plot the linear graph accurately.
     `;
 
     // Make the API call to the Gemini model

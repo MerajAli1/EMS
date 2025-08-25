@@ -1984,6 +1984,7 @@ function MonthlyGoalSetter() {
   );
 }
 
+// import ReactMarkdown from "react-markdown";
 const EnergyDashboard = () => {
   // --- Loading state for predictive score ---
   const [loadingScore, setLoadingScore] = useState(false);
@@ -2090,20 +2091,20 @@ const EnergyDashboard = () => {
   // Debounce hook to prevent excessive API calls
   const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
-  
+
     useEffect(() => {
       const handler = setTimeout(() => {
         setDebouncedValue(value);
       }, delay);
-  
+
       return () => {
         clearTimeout(handler);
       };
     }, [value, delay]);
-  
+
     return debouncedValue;
   };
-  
+
   // Debounced version of energyData
   const debouncedEnergyData = useDebounce(energyData, 1500); // 1.5 seconds delay
 
@@ -2114,7 +2115,7 @@ const EnergyDashboard = () => {
       console.error("User ID not found in localStorage.");
       return;
     }
-    
+
     // Listen for real-time changes to the energy data in Firebase
     const energyRef = ref(database, `${userId}/energy`);
     const unsubscribe = onValue(energyRef, (snapshot) => {
@@ -2138,26 +2139,50 @@ const EnergyDashboard = () => {
 
   // --- Memoized Chart Data and Options ---
   // Only plot the predicted data, not the Firebase/historical data
-  const chartData = useMemo(() => {
-    if (predictedData && Array.isArray(predictedData.labels) && Array.isArray(predictedData.data)) {
-      return {
-        labels: predictedData.labels,
-        datasets: [
-          {
-            label: 'Predicted Usage',
-            data: predictedData.data,
-            borderColor: '#6c757d',
-            backgroundColor: 'rgba(108, 117, 125, 0.1)',
-            borderDash: [5, 5],
-            tension: 0.4,
-            fill: false,
-          },
-        ],
-      };
-    }
-    return { labels: [], datasets: [] };
-  }, [predictedData]);
+  // --- Memoized Chart Data and Options ---
+const chartData = useMemo(() => {
+  if (energyData && Object.keys(energyData).length > 0) {
+    const energyEntries = Object.values(energyData)
+      .filter((entry) => entry.timestamp && entry.energy_used !== undefined)
+      .map((entry) => ({
+        ...entry,
+        energy_used: parseFloat(entry.energy_used) || 0,
+        timestamp: new Date(entry.timestamp),
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
 
+    const averagedData = [];
+    const labels = [];
+    for (let i = 0; i < energyEntries.length; i += 7) { // Weekly chunks
+      const chunk = energyEntries.slice(i, i + 7);
+      const average =
+        chunk.reduce((sum, entry) => sum + entry.energy_used, 0) /
+        chunk.length;
+      averagedData.push(parseFloat(average.toFixed(2)));
+      labels.push(
+        `${chunk[0].timestamp.toLocaleDateString()} - ${chunk[
+          chunk.length - 1
+        ].timestamp.toLocaleDateString()}`
+      );
+    }
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Predicted Usage',
+          data: averagedData,
+          borderColor: '#6c757d',
+          backgroundColor: 'rgba(108, 117, 125, 0.1)',
+          borderDash: [5, 5],
+          tension: 0.4,
+          fill: false,
+        },
+      ],
+    };
+  }
+  return { labels: [], datasets: [] };
+}, [energyData]);
   const chartOptions = {
     responsive: true,
     plugins: {
@@ -2166,11 +2191,20 @@ const EnergyDashboard = () => {
       tooltip: { mode: 'index', intersect: false },
     },
     scales: {
-      x: { grid: { display: false } },
-      y: { grid: { display: false }, ticks: { display: false } },
+      x: {
+        grid: { display: false },
+        ticks: {
+          autoSkip: true, // Automatically skip labels
+          maxTicksLimit: 10, // Limit the number of labels displayed
+        },
+      },
+      y: {
+        grid: { display: false },
+        ticks: { display: true },
+      },
     },
   };
-  
+
   // Helper function to get Font Awesome icon based on status
   const getStatusIcon = (status) => {
     switch (status) {
@@ -2197,7 +2231,7 @@ const EnergyDashboard = () => {
     if (!predictedScore) return 0;
     return Object.values(predictedScore).filter(value => value === true).length;
   };
-  
+
   const scoreCount = calculateScoreCount();
 
   return (
@@ -2237,20 +2271,11 @@ const EnergyDashboard = () => {
           <Card className="h-100 p-3 shadow-sm border-0">
             <div className="d-flex justify-content-between align-items-center mb-3">
               <h5 className="mb-0 text-muted">Predicted Pattern</h5>
-              <div className="d-flex">
-                {/* <Form.Select size="sm" className="me-2">
-                  <option>Energy</option>
-                </Form.Select>
-                <Form.Select size="sm" onChange={(e) => setTimeFrame(e.target.value)}>
-                  <option value="This Week">This Week</option>
-                  <option value="Next Week">Next Week</option>
-                </Form.Select> */}
-              </div>
             </div>
-            <div className="p-3">
-              {predicting ? (
+            <div className="p-3" style={{ height: '400px' }}> {/* Increased height */}
+              {!energyData || Object.keys(energyData).length === 0 ? (
                 <div className="text-center">
-                  <p>Generating prediction...</p>
+                  <p>No energy data available to plot the graph.</p>
                 </div>
               ) : (
                 <Line data={chartData} options={chartOptions} />
@@ -2274,7 +2299,25 @@ const EnergyDashboard = () => {
                   className={`mb-2 p-2 rounded ${msg.sender === 'user' ? 'bg-primary text-white ms-auto' : 'bg-light me-auto'}`}
                   style={{ maxWidth: '75%' }}
                 >
-                  {msg.text}
+                  {msg.sender === 'ai' ? (
+                    <div>
+                      {msg.text.split('\n').map((line, lineIndex) => (
+                        <p key={lineIndex} style={{ marginBottom: '8px' }}>
+                          {line.split('**').map((part, partIndex) =>
+                            partIndex % 2 === 1 ? (
+                              <strong key={partIndex} style={{ fontWeight: 700 }}>
+                                {part}
+                              </strong>
+                            ) : (
+                              part
+                            )
+                          )}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    msg.text
+                  )}
                 </div>
               ))}
               {loading && <div className="text-center">AI is thinking...</div>}
